@@ -68,18 +68,19 @@ class ModalVoiceAssistant:
     @modal.enter(snap=False)
     async def initialize_mlflow(self):
         """Initialize MLflow client after snapshot restore."""
+        import os
         from server.observability.mlflow_client import MLflowAsyncClient
-        from server.observability.mlflow_server import ModalTunnelManager
 
         try:
-            # Spawn MLflow server (if not already running)
-            logger.info("Initializing MLflow server...")
-            self.mlflow_tunnel_mgr = ModalTunnelManager(
-                app_name="mlflow-tracking",
-                cls_name="MLflowServer",
+            # MLflow server URL - uses stable web_server endpoint
+            # Format: https://{workspace}--mlflow-tracking-mlflowserver-serve.modal.run
+            # Note: URL changed from 'mlflow-ui' to 'serve' method name
+            # Can override via MLFLOW_TRACKING_URI environment variable
+            mlflow_url = os.getenv(
+                "MLFLOW_TRACKING_URI",
+                "https://xaver--mlflow-tracking-mlflowserver-serve.modal.run"
             )
-            mlflow_url = await self.mlflow_tunnel_mgr.get_url()
-            logger.info(f"MLflow server URL: {mlflow_url}")
+            logger.info(f"Connecting to MLflow server at: {mlflow_url}")
 
             # Initialize MLflow client
             self.mlflow_client = MLflowAsyncClient(mlflow_url)
@@ -88,6 +89,7 @@ class ModalVoiceAssistant:
 
         except Exception as e:
             logger.error(f"Failed to initialize MLflow: {e}")
+            logger.warning("MLflow tracing disabled - bot will continue without observability")
             # Create a disabled client as fallback
             from server.observability.mlflow_client import MLflowTracingDisabled
             self.mlflow_client = MLflowTracingDisabled()
@@ -102,7 +104,7 @@ class ModalVoiceAssistant:
             except Exception as e:
                 logger.error(f"Error stopping MLflow client: {e}")
 
-    @modal.method()
+    @modal.method(timeout=30 * 60)  # 30 minutes - match class timeout
     async def run_bot(self, d: modal.Dict):
         """Launch the bot process with WebRTC connection and run the bot pipeline.
 
@@ -117,6 +119,7 @@ class ModalVoiceAssistant:
         try:
             start_time = time.time()
             offer = await d.get.aio("offer")
+            logger.info(f"Received offer: {offer}")
             ice_servers = await d.get.aio("ice_servers")
             ice_servers = [
                 IceServer(
@@ -203,6 +206,8 @@ def serve_frontend():
     async def offer(offer: dict):
 
         start_time = time.time()
+
+        print(f"Received offer at endpoint: {offer}")
 
         _ICE_SERVERS = [
             {

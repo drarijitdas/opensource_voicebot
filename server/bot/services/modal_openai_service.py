@@ -1,8 +1,12 @@
 from loguru import logger
 import sys
 import asyncio
+import time
+from typing import Optional
 from openai import AsyncStream
 from openai.types.chat import ChatCompletionChunk
+
+import mlflow
 
 from pipecat.frames.frames import StopFrame, CancelFrame, TTSSpeakFrame
 from pipecat.services.openai.llm import OpenAILLMService
@@ -11,6 +15,7 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 
 from server.bot.processors.parser import ModalRagStreamingJsonParser
 from server.bot.services.modal_services import ModalTunnelManager
+from server.observability.metrics import LatencyMetrics, TokenMetrics
 
 try:
     logger.remove(0)
@@ -50,6 +55,9 @@ class ModalOpenAILLMService(OpenAILLMService):
 
         # Create the JSON parser instance
         self.json_parser = ModalRagStreamingJsonParser(self)
+
+        # Trace manager (injected by bot orchestration)
+        self._trace_manager: Optional["TraceContextManager"] = None
 
     async def _get_url(self):
         if self.modal_tunnel_manager:
@@ -117,6 +125,51 @@ class ModalOpenAILLMService(OpenAILLMService):
             await self.push_frame(TTSSpeakFrame("My apologies, I'm still setting up a few things. I'll respond as soon as I'm ready."))
             return
 
+        # Use MLflow's native span creation if trace manager is available
+        if self._trace_manager:
+            messages = context.get_messages()
+            with mlflow.start_span(name="llm_generation", span_type="LLM") as span:
+                # Set inputs
+                span.set_inputs({
+                    "messages": [{"role": m["role"], "content": str(m["content"])[:200]} for m in messages[-3:]],
+                    "num_messages": len(messages),
+                    "model": self.model_name,
+                })
+
+                # Process LLM
+                total_content, token_usage, latency_metrics = await self._process_llm_streaming(context)
+
+                # Set outputs
+                span.set_outputs({
+                    "response": total_content[:500],  # Truncate for logging
+                    "response_length": len(total_content),
+                })
+
+                # Log metrics directly to MLflow
+                metrics_dict = latency_metrics.to_dict()
+                for key, value in metrics_dict.items():
+                    mlflow.log_metric(f"llm.{key}", value)
+
+                # Log token metrics if available
+                if token_usage:
+                    token_metrics = TokenMetrics.from_usage({
+                        "prompt_tokens": token_usage.prompt_tokens,
+                        "completion_tokens": token_usage.completion_tokens,
+                        "total_tokens": token_usage.total_tokens,
+                    })
+                    for key, value in token_metrics.to_dict().items():
+                        mlflow.log_metric(f"llm.{key}", value)
+
+                # Record response for judge evaluation
+                self._trace_manager.record_turn_data(assistant_response=total_content)
+        else:
+            # No tracing, just process
+            await self._process_llm_streaming(context)
+
+    async def _process_llm_streaming(self, context: OpenAILLMContext):
+        """Process LLM streaming and return metrics."""
+        # Initialize metrics tracking
+        latency_metrics = LatencyMetrics()
 
         await self.start_ttfb_metrics()
 
@@ -135,8 +188,12 @@ class ModalOpenAILLMService(OpenAILLMService):
             new_context
         )
 
+        # Track token usage and response
+        total_content = ""
+        token_usage = None
+
         async for chunk in chunk_stream:
-            
+
             if chunk.choices is None or len(chunk.choices) == 0:
                 continue
 
@@ -145,6 +202,26 @@ class ModalOpenAILLMService(OpenAILLMService):
 
             if chunk.choices[0].delta.content:
                 await self.stop_ttfb_metrics()
+
+                # Track first token
+                if latency_metrics.first_token_time is None:
+                    latency_metrics.record_first_token()
+
+                # Track each token
+                latency_metrics.record_token()
+
+                # Accumulate content
+                total_content += chunk.choices[0].delta.content
+
                 await self.json_parser.process_chunk(chunk.choices[0].delta.content)
+
+            # Capture token usage if available
+            if hasattr(chunk, "usage") and chunk.usage:
+                token_usage = chunk.usage
+
+        # Record end time
+        latency_metrics.record_end()
+
+        return total_content, token_usage, latency_metrics
 
 

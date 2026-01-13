@@ -1,8 +1,9 @@
 from pathlib import Path
 from loguru import logger
-
+from typing import Optional
 
 import time
+import mlflow
 from huggingface_hub import snapshot_download
 import chromadb
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -113,11 +114,14 @@ class ChromaVectorDB:
 
 class ModalRag(FrameProcessor):
     def __init__(self, chroma_db: ChromaVectorDB, similarity_top_k: int = 5, num_adjacent_nodes: int = 2, **kwargs):
-        super().__init__(**kwargs) 
+        super().__init__(**kwargs)
         self.chroma_db = chroma_db
-        
+
         self.similarity_top_k = similarity_top_k
         self.num_adjacent_nodes = num_adjacent_nodes
+
+        # Trace manager (injected by bot orchestration)
+        self._trace_manager: Optional["TraceContextManager"] = None
 
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -125,44 +129,82 @@ class ModalRag(FrameProcessor):
         await super().process_frame(frame, direction)
 
         if isinstance(frame, TranscriptionFrame):
-            # Handle the frame
-            rag_context = ""
+            # Use MLflow's native span creation if trace manager is available
+            if self._trace_manager:
+                with mlflow.start_span(name="rag_retrieval", span_type="RETRIEVAL") as span:
+                    # Set inputs
+                    span.set_inputs({
+                        "query": frame.text[:200],
+                        "similarity_top_k": self.similarity_top_k,
+                        "num_adjacent_nodes": self.num_adjacent_nodes,
+                    })
 
-            rag_start = time.perf_counter()
-            try:
-                retrieved_nodes = self.chroma_db.query(frame.text, similarity_top_k=self.similarity_top_k, num_adjacent_nodes=self.num_adjacent_nodes)
-                # Filter out nodes with None text and handle gracefully
-                valid_texts = []
-                for node_index, node in enumerate(retrieved_nodes):
-                    if node.text is not None:
-                        valid_texts.append(f"Related Modal Docs Section, Chunk {node_index+1}:\n{node.text}")
-                    else:
-                        logger.info("⚠️ Found node with None text, skipping")
-                
-                context_str = "\n".join(valid_texts) if valid_texts else "No valid context found."
-            except Exception as e:
-                logger.info(f"⚠️  RAG retrieval failed: {type(e)}: {e}")
-                raise e
-            
-            rag_time = time.perf_counter() - rag_start
-            logger.info(f"⏱️ RAG retrieval took {rag_time:.3f}s")
-            
-            # Add RAG to most recent user message
-            rag_context += "\nRetrieved Chunks from Documentation:\n"
-            rag_context += context_str
+                    # Perform retrieval
+                    context_str, rag_time, num_docs = await self._retrieve_context(frame.text)
 
-            # Restate instructions
-            rag_context += "\n\nYou MUST respond with ONLY the following JSON format (no additional text):"
-            rag_context += "\n\n{"
-            rag_context += "\n    \"spoke_response\": str, A clean, conversational answer suitable for text-to-speech. The answer must be as useful and a concise as possible. DO NOT use technical symbols, code syntax, or complex formatting. DO NOT use terms like @modal.function, instead you can say 'the modal function decorator'. Explain concepts simply and DO NOT use any non-speech compatible formatting."
-            rag_context += "\n    \"code_blocks\": list[str], List of code blocks that that demonstrate relevant snippets related to or that answer the user's query."
-            rag_context += "\n    \"links\": list[str], List of relevant URLs. These must be valid URLs pulled directly from the documentation context. If the URL path is relative, use the prefix https://modal.com/docs."
-            rag_context += "\n}"
-            rag_context += "\nKeep your answer CONCISE and EFFECTIVE. USE AS SHORT OF SENTENCES AS POSSBILE, ESPECIALLY OUR FIRST SENTENCE! DO NOT introduce yourself unless you are asked to do so, and refer to yourself in the plural using words such as 'we' and 'us' and never 'I' or 'me'!"
+                    # Set outputs
+                    span.set_outputs({
+                        "context": context_str[:500],  # Truncate for logging
+                        "context_length": len(context_str),
+                    })
 
-            frame.text += rag_context
+                    # Log metrics directly to MLflow
+                    mlflow.log_metric("rag.retrieval_time_ms", rag_time * 1000)
+                    mlflow.log_metric("rag.num_docs_retrieved", num_docs)
 
-        await self.push_frame(frame, direction) 
+                    # Store context for judge evaluation
+                    self._trace_manager.record_turn_data(
+                        user_query=frame.text,
+                        retrieved_context=context_str,
+                    )
+
+                    # Add RAG context to frame
+                    frame.text += self._format_rag_context(context_str)
+            else:
+                # No tracing, just retrieve
+                context_str, rag_time, num_docs = await self._retrieve_context(frame.text)
+                frame.text += self._format_rag_context(context_str)
+
+        await self.push_frame(frame, direction)
+
+    async def _retrieve_context(self, query: str):
+        """Perform RAG retrieval and return context."""
+        rag_start = time.perf_counter()
+        try:
+            retrieved_nodes = self.chroma_db.query(query, similarity_top_k=self.similarity_top_k, num_adjacent_nodes=self.num_adjacent_nodes)
+            # Filter out nodes with None text and handle gracefully
+            valid_texts = []
+            for node_index, node in enumerate(retrieved_nodes):
+                if node.text is not None:
+                    valid_texts.append(f"Related Modal Docs Section, Chunk {node_index+1}:\n{node.text}")
+                else:
+                    logger.info("⚠️ Found node with None text, skipping")
+
+            context_str = "\n".join(valid_texts) if valid_texts else "No valid context found."
+        except Exception as e:
+            logger.info(f"⚠️  RAG retrieval failed: {type(e)}: {e}")
+            raise e
+
+        rag_time = time.perf_counter() - rag_start
+        logger.info(f"⏱️ RAG retrieval took {rag_time:.3f}s")
+
+        return context_str, rag_time, len(retrieved_nodes)
+
+    def _format_rag_context(self, context_str: str) -> str:
+        """Format RAG context with instructions."""
+        rag_context = "\nRetrieved Chunks from Documentation:\n"
+        rag_context += context_str
+
+        # Restate instructions
+        rag_context += "\n\nYou MUST respond with ONLY the following JSON format (no additional text):"
+        rag_context += "\n\n{"
+        rag_context += "\n    \"spoke_response\": str, A clean, conversational answer suitable for text-to-speech. The answer must be as useful and a concise as possible. DO NOT use technical symbols, code syntax, or complex formatting. DO NOT use terms like @modal.function, instead you can say 'the modal function decorator'. Explain concepts simply and DO NOT use any non-speech compatible formatting."
+        rag_context += "\n    \"code_blocks\": list[str], List of code blocks that that demonstrate relevant snippets related to or that answer the user's query."
+        rag_context += "\n    \"links\": list[str], List of relevant URLs. These must be valid URLs pulled directly from the documentation context. If the URL path is relative, use the prefix https://modal.com/docs."
+        rag_context += "\n}"
+        rag_context += "\nKeep your answer CONCISE and EFFECTIVE. USE AS SHORT OF SENTENCES AS POSSBILE, ESPECIALLY OUR FIRST SENTENCE! DO NOT introduce yourself unless you are asked to do so, and refer to yourself in the plural using words such as 'we' and 'us' and never 'I' or 'me'!"
+
+        return rag_context 
 
 
 def get_system_prompt(enable_moe_and_dal: bool = False):

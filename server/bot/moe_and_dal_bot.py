@@ -50,6 +50,7 @@ _DEFAULT_ENABLE_VIDEO = False
 async def run_bot(
     webrtc_connection: SmallWebRTCConnection,
     chroma_db: ChromaVectorDB,
+    mlflow_client: "MLflowAsyncClient",
     enable_moe_and_dal: bool = _DEFAULT_ENABLE_VIDEO,
 ):
     """Main bot execution function.
@@ -61,7 +62,20 @@ async def run_bot(
     - Voice activity detection and smart turn management
     - Animation processing with talking animations
     - RTVI event handling
+    - MLflow tracing for observability
+
+    Args:
+        webrtc_connection: WebRTC connection for audio/video transport
+        chroma_db: ChromaDB vector database for RAG
+        mlflow_client: MLflow async client for tracing
+        enable_moe_and_dal: Whether to enable Moe and Dal animation
     """
+    from server.observability.trace_context import TraceContextManager
+
+    # Initialize trace context manager
+    trace_mgr = TraceContextManager(mlflow_client)
+    conversation_ctx = trace_mgr.initialize_conversation()
+    logger.info(f"Initialized tracing for session: {conversation_ctx.session_id}")
 
     # spawn services first (happens on modaltunnelmanager init)
     sglang_tunnel_manager = ModalTunnelManager(
@@ -90,6 +104,7 @@ async def run_bot(
             },
         ),
     )
+    llm._trace_manager = trace_mgr
 
     parakeet_stt_tunnel_manager=ModalTunnelManager(
         app_name="parakeet-transcription",
@@ -136,8 +151,10 @@ async def run_bot(
     stt = ModalParakeetSegmentedSTTService(
         modal_tunnel_manager=parakeet_stt_tunnel_manager,
     )
+    stt._trace_manager = trace_mgr
 
     modal_rag = ModalRag(chroma_db=chroma_db, similarity_top_k=3, num_adjacent_nodes=2)
+    modal_rag._trace_manager = trace_mgr
 
      # only add animation processor and dual speaker setup if video is enabled
     if enable_moe_and_dal:
@@ -161,6 +178,7 @@ async def run_bot(
             voice="am_puck",
             speed=1.35,
         )
+        tts._trace_manager = trace_mgr
 
 
     # RTVI events for Pipecat client UI
@@ -229,6 +247,8 @@ async def run_bot(
     async def on_client_ready(rtvi):
         logger.info("Pipecat client ready.")
         await rtvi.set_bot_ready()
+        # Start first turn
+        trace_mgr.start_turn()
         await task.queue_frame(LLMRunFrame())
         
     @transport.event_handler("on_client_disconnected")

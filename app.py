@@ -28,6 +28,8 @@ bot_image = (
         "aiofiles",
         "fastapi[standard]",
         "huggingface_hub[hf_transfer]",
+        "mlflow>=3.8.1",
+        "psycopg2-binary>=2.9.10",
     )
     .env({
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
@@ -62,6 +64,43 @@ class ModalVoiceAssistant:
     def load(self):
         from server.bot.processors.modal_rag import ChromaVectorDB
         self.chroma_db = ChromaVectorDB()
+
+    @modal.enter(snap=False)
+    async def initialize_mlflow(self):
+        """Initialize MLflow client after snapshot restore."""
+        from server.observability.mlflow_client import MLflowAsyncClient
+        from server.observability.mlflow_server import ModalTunnelManager
+
+        try:
+            # Spawn MLflow server (if not already running)
+            logger.info("Initializing MLflow server...")
+            self.mlflow_tunnel_mgr = ModalTunnelManager(
+                app_name="mlflow-tracking",
+                cls_name="MLflowServer",
+            )
+            mlflow_url = await self.mlflow_tunnel_mgr.get_url()
+            logger.info(f"MLflow server URL: {mlflow_url}")
+
+            # Initialize MLflow client
+            self.mlflow_client = MLflowAsyncClient(mlflow_url)
+            await self.mlflow_client.start()
+            logger.info("MLflow client initialized successfully")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize MLflow: {e}")
+            # Create a disabled client as fallback
+            from server.observability.mlflow_client import MLflowTracingDisabled
+            self.mlflow_client = MLflowTracingDisabled()
+
+    @modal.exit()
+    async def cleanup(self):
+        """Cleanup MLflow client on exit."""
+        if hasattr(self, 'mlflow_client'):
+            try:
+                await self.mlflow_client.stop()
+                logger.info("MLflow client stopped")
+            except Exception as e:
+                logger.error(f"Error stopping MLflow client: {e}")
 
     @modal.method()
     async def run_bot(self, d: modal.Dict):
@@ -99,8 +138,9 @@ class ModalVoiceAssistant:
             print("Starting bot process.")
             bot_task = asyncio.create_task(
                 run_bot(
-                    webrtc_connection, 
-                    self.chroma_db, 
+                    webrtc_connection,
+                    self.chroma_db,
+                    self.mlflow_client,
                     enable_moe_and_dal=False
                 )
             )

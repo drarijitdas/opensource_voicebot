@@ -152,11 +152,19 @@ class ModalOpenAILLMService(OpenAILLMService):
 
                 # Log token metrics if available
                 if token_usage:
-                    token_metrics = TokenMetrics.from_usage({
-                        "prompt_tokens": token_usage.prompt_tokens,
-                        "completion_tokens": token_usage.completion_tokens,
-                        "total_tokens": token_usage.total_tokens,
-                    })
+                    # Calculate generation time (excluding TTFT)
+                    generation_time_s = None
+                    if latency_metrics.end_time and latency_metrics.first_token_time:
+                        generation_time_s = latency_metrics.end_time - latency_metrics.first_token_time
+
+                    token_metrics = TokenMetrics.from_usage(
+                        usage={
+                            "prompt_tokens": token_usage.prompt_tokens,
+                            "completion_tokens": token_usage.completion_tokens,
+                            "total_tokens": token_usage.total_tokens,
+                        },
+                        generation_time_s=generation_time_s
+                    )
                     for key, value in token_metrics.to_dict().items():
                         mlflow.log_metric(f"llm.{key}", value)
 

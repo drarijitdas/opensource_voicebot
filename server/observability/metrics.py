@@ -125,14 +125,16 @@ class TokenMetrics:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    generation_time_s: Optional[float] = None
 
     @classmethod
-    def from_usage(cls, usage: dict) -> "TokenMetrics":
+    def from_usage(cls, usage: dict, generation_time_s: Optional[float] = None) -> "TokenMetrics":
         """
         Create from OpenAI usage dict.
 
         Args:
             usage: Usage dict from OpenAI API response
+            generation_time_s: Total generation time in seconds (optional)
 
         Returns:
             TokenMetrics: Token metrics
@@ -141,7 +143,21 @@ class TokenMetrics:
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
+            generation_time_s=generation_time_s,
         )
+
+    def get_tokens_per_second(self) -> Optional[float]:
+        """
+        Calculate tokens per second based on completion tokens and generation time.
+
+        Returns:
+            float: Tokens per second, or None if not available
+        """
+        if self.generation_time_s is None or self.generation_time_s == 0:
+            return None
+        if self.completion_tokens == 0:
+            return None
+        return self.completion_tokens / self.generation_time_s
 
     def to_dict(self) -> dict:
         """
@@ -150,11 +166,17 @@ class TokenMetrics:
         Returns:
             dict: Metrics dictionary
         """
-        return {
+        metrics = {
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "total_tokens": self.total_tokens,
         }
+
+        tokens_per_second = self.get_tokens_per_second()
+        if tokens_per_second is not None:
+            metrics["tokens_per_second"] = tokens_per_second
+
+        return metrics
 
 
 @dataclass

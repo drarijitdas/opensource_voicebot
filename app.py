@@ -1,6 +1,5 @@
 import asyncio
 from pathlib import Path
-from re import escape
 import time
 
 import modal
@@ -139,7 +138,7 @@ frontend_image = (
 
 with frontend_image.imports():
     from fastapi import FastAPI
-    from fastapi.responses import HTMLResponse, FileResponse
+    from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
 
 @app.function(image=frontend_image)

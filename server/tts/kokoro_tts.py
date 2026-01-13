@@ -98,7 +98,7 @@ class KokoroTTS:
                                 continue
                         else:
                             continue
-                    except Exception as e:
+                    except Exception:
                         continue
                     
                     
@@ -114,7 +114,7 @@ class KokoroTTS:
                         end_time = time.perf_counter()
                         print(f"Time taken to stream TTS: {end_time - start_time:.3f} seconds")
 
-                    except Exception as e:
+                    except Exception:
                         continue
 
                         

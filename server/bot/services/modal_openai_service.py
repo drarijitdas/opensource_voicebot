@@ -1,8 +1,6 @@
 from loguru import logger
 import sys
-import uuid
 import asyncio
-import time
 from openai import AsyncStream
 from openai.types.chat import ChatCompletionChunk
 
@@ -13,7 +11,6 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 
 from server.bot.processors.parser import ModalRagStreamingJsonParser
 from server.bot.services.modal_services import ModalTunnelManager
-import modal
 
 try:
     logger.remove(0)
@@ -39,7 +36,7 @@ class ModalOpenAILLMService(OpenAILLMService):
         self._connect_client_task = None
 
         if self.modal_tunnel_manager:
-            logger.info(f"Using Modal Tunnels")
+            logger.info("Using Modal Tunnels")
         if self.base_url:
             logger.info(f"Using URL: {self.base_url}")
             if not base_url.endswith("/v1"):
@@ -56,7 +53,7 @@ class ModalOpenAILLMService(OpenAILLMService):
 
     async def _get_url(self):
         if self.modal_tunnel_manager:
-            print(f"Getting URL from modal tunnel manager")
+            print("Getting URL from modal tunnel manager")
             url = await self.modal_tunnel_manager.get_url()
             print(f"Got URL from tunnel manager: {url}")
             if not url.endswith("/v1"):
@@ -65,7 +62,7 @@ class ModalOpenAILLMService(OpenAILLMService):
         return self.base_url
 
     async def _delayed_create_client(self, **kwargs):
-        print(f"Delayed creating client task started...")
+        print("Delayed creating client task started...")
         self.base_url = await self._get_url()
         print(f"Got Base URL from _get_url: {self.base_url}")
             

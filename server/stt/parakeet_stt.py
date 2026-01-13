@@ -75,7 +75,6 @@ with image.imports():
     import torch
     import threading
     import uvicorn
-    from fastapi import FastAPI
 
 
 @app.cls(
@@ -200,7 +199,7 @@ class Transcriber:
                                 continue
                         else:
                             continue
-                    except Exception as e:
+                    except Exception:
                         continue
 
                     if self.use_vad:
@@ -293,7 +292,7 @@ class Transcriber:
                                     start_idx = speech_time_stamps["start"]
                                     print(f"speech started at {start_idx}")
                                 if speech_time_stamps.get("end"):
-                                    print(f"full speech found in remainging audio")
+                                    print("full speech found in remainging audio")
                                     vad.reset_states()
 
                         

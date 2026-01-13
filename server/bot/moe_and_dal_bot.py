@@ -1,5 +1,4 @@
 import sys
-import asyncio
 from loguru import logger
 
 from pipecat.pipeline.pipeline import Pipeline
@@ -32,7 +31,6 @@ from .processors.modal_rag import ModalRag, get_system_prompt, ChromaVectorDB
 
 from .avatar.animation import MoeDalBotAnimation, get_frames
 
-import modal
 
 try:
     logger.remove(0)

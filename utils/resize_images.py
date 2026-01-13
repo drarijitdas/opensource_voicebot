@@ -84,7 +84,7 @@ def main():
         base_name = os.path.splitext(os.path.basename(input_file))[0]
         output_file = os.path.join(source_dir, f"{base_name}_resized.png")
         
-        print(f"Processing: {os.path.basename(input_file)} -> {os.path.basename(input_file)}")
+        print(f"Processing: {os.path.basename(input_file)} -> {os.path.basename(output_file)}")
         
         if resize_with_padding(input_file, input_file):
             print(f"✓ Successfully processed: {base_name}")

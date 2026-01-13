@@ -68,7 +68,6 @@ class VLLMServer():
     @modal.enter(snap=True)
     async def launch_vllm_server(self):
         import subprocess
-        import requests
 
         self.tunnel_ctx = None
         self.tunnel = None

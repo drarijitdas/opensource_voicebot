@@ -1,7 +1,6 @@
 from pathlib import Path
 from loguru import logger
 
-import modal
 
 import time
 from huggingface_hub import snapshot_download
@@ -149,17 +148,17 @@ class ModalRag(FrameProcessor):
             logger.info(f"⏱️ RAG retrieval took {rag_time:.3f}s")
             
             # Add RAG to most recent user message
-            rag_context += f"\nRetrieved Chunks from Documentation:\n"
+            rag_context += "\nRetrieved Chunks from Documentation:\n"
             rag_context += context_str
 
             # Restate instructions
-            rag_context += f"\n\nYou MUST respond with ONLY the following JSON format (no additional text):"
-            rag_context += f"\n\n{{"
-            rag_context += f"\n    \"spoke_response\": str, A clean, conversational answer suitable for text-to-speech. The answer must be as useful and a concise as possible. DO NOT use technical symbols, code syntax, or complex formatting. DO NOT use terms like @modal.function, instead you can say 'the modal function decorator'. Explain concepts simply and DO NOT use any non-speech compatible formatting."
-            rag_context += f"\n    \"code_blocks\": list[str], List of code blocks that that demonstrate relevant snippets related to or that answer the user's query."
-            rag_context += f"\n    \"links\": list[str], List of relevant URLs. These must be valid URLs pulled directly from the documentation context. If the URL path is relative, use the prefix https://modal.com/docs."
-            rag_context += f"\n}}"
-            rag_context += f"\nKeep your answer CONCISE and EFFECTIVE. USE AS SHORT OF SENTENCES AS POSSBILE, ESPECIALLY OUR FIRST SENTENCE! DO NOT introduce yourself unless you are asked to do so, and refer to yourself in the plural using words such as 'we' and 'us' and never 'I' or 'me'!"
+            rag_context += "\n\nYou MUST respond with ONLY the following JSON format (no additional text):"
+            rag_context += "\n\n{"
+            rag_context += "\n    \"spoke_response\": str, A clean, conversational answer suitable for text-to-speech. The answer must be as useful and a concise as possible. DO NOT use technical symbols, code syntax, or complex formatting. DO NOT use terms like @modal.function, instead you can say 'the modal function decorator'. Explain concepts simply and DO NOT use any non-speech compatible formatting."
+            rag_context += "\n    \"code_blocks\": list[str], List of code blocks that that demonstrate relevant snippets related to or that answer the user's query."
+            rag_context += "\n    \"links\": list[str], List of relevant URLs. These must be valid URLs pulled directly from the documentation context. If the URL path is relative, use the prefix https://modal.com/docs."
+            rag_context += "\n}"
+            rag_context += "\nKeep your answer CONCISE and EFFECTIVE. USE AS SHORT OF SENTENCES AS POSSBILE, ESPECIALLY OUR FIRST SENTENCE! DO NOT introduce yourself unless you are asked to do so, and refer to yourself in the plural using words such as 'we' and 'us' and never 'I' or 'me'!"
 
             frame.text += rag_context
 

@@ -119,7 +119,7 @@ class ModalWebsocketService(WebsocketService):
         self._websocket_url = websocket_url
         
         if self.modal_tunnel_manager:
-            logger.info(f"Using Modal Tunnels")
+            logger.info("Using Modal Tunnels")
         elif self._websocket_url:
             logger.info(f"Using websocket URL: {self._websocket_url}")
         else:

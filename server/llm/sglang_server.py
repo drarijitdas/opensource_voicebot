@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import subprocess
 import os
-import sys
 from typing import Final
 import modal
 import asyncio
@@ -37,7 +35,7 @@ sglang_image: Final[modal.Image] = (
         {
             "TORCHINDUCTOR_COMPILE_THREADS": "1",
             "TMS_INIT_ENABLE_CPU_BACKUP": "1",
-            "TORCHINDUCTOR_CACHE_DIR": f"/root/.cache/torch/",
+            "TORCHINDUCTOR_CACHE_DIR": "/root/.cache/torch/",
             "HF_HUB_ENABLE_HF_TRANSFER": "1",
             "MODAL_SGL_URL": "http://127.0.0.1:8092/v1",
             "MODAL_LOGLEVEL": "DEBUG",
@@ -179,11 +177,8 @@ class SGLangServer:
 
     def _warmup(self) -> None:
         """Send a few warmup requests to the server."""
-        import base64
-        import io
 
         from openai import OpenAI
-        from PIL import Image
 
         print("🚀 Warming up server...")
 
@@ -205,7 +200,7 @@ class SGLangServer:
 
         # refreshed target model seems to max output tokens for warmup request
         try:
-            print(f"Warmup request...")
+            print("Warmup request...")
             client.chat.completions.create(
                 model=MODEL_PATH,
                 messages=messages,

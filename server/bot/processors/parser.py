@@ -2,8 +2,8 @@ import enum
 import time
 
 
-from pipecat.processors.frame_processor import FrameProcessor, FrameDirection
-from pipecat.frames.frames import LLMTextFrame, Frame
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.frames.frames import LLMTextFrame
 from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
 
 

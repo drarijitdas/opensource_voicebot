@@ -8,6 +8,7 @@ span creation and logging.
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Optional
 
 import mlflow
@@ -151,23 +152,16 @@ class MLflowTracingDisabled:
     async def stop(self):
         pass
 
-    @asynccontextmanager
-    async def create_span(self, *args, **kwargs):
-        yield "dummy-span-id"
-
-    async def log_output(self, *args, **kwargs):
+    def log_metric(self, *args, **kwargs):
+        """No-op log_metric (synchronous to match MLflowAsyncClient)."""
         pass
 
-    async def log_metric(self, *args, **kwargs):
+    def log_param(self, *args, **kwargs):
+        """No-op log_param (synchronous to match MLflowAsyncClient)."""
         pass
 
-    async def log_param(self, *args, **kwargs):
-        pass
-
-    async def log_artifact(self, *args, **kwargs):
-        pass
-
-    async def set_tag(self, *args, **kwargs):
+    def set_tag(self, *args, **kwargs):
+        """No-op set_tag (synchronous to match MLflowAsyncClient)."""
         pass
 
 
